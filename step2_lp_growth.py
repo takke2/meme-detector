@@ -3,7 +3,7 @@ import time
 import os
 from notify_mail import send_mail
 
-DEX_API = "https://api.dexscreener.com/latest/dex/pairs/ethereum"
+DEX_API = "https://api.dexscreener.com/latest/dex/search?q=chain:ethereum"
 
 LP_GROWTH_THRESHOLD = 20      # LPが20%以上増えたら注目
 MIN_LP_USD = 30_000           # 最低流動性
