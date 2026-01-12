@@ -24,7 +24,7 @@ jobs:
         env:
           FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
           TO_EMAIL:   ${{ secrets.TO_EMAIL }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          EMAIL_PASS: ${{ secrets.APP_PASSWORD }}
         run: |
           python step2_lp_growth.py
 
