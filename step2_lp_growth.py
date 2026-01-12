@@ -3,23 +3,21 @@ import time
 import os
 from notify_mail import send_mail
 
-# =========================
-# 設定値（ここだけ触ればOK）
-# =========================
-
-LP_GROWTH_THRESHOLD = 20      # LPが何％以上増えたら検知するか
-MIN_LP_USD = 30_000           # 最低流動性（USD）
+# ===== 設定 =====
+SEARCH_QUERY = "eth"
+LP_GROWTH_THRESHOLD = 20        # LP成長率 %
+MIN_LP_USD = 30_000             # 最低LP
 MIN_FDV = 50_000
 MAX_FDV = 5_000_000
 
-# GitHub Actionsでは1回実行なので0でOK
-CHECK_INTERVAL = 0
-
+CHECK_INTERVAL = 300            # 5分
 NOTIFIED_FILE = "notified.txt"
 
-# =========================
-# 通知済み管理（一生に一度）
-# =========================
+# 除外トークン（本物ETH系）
+EXCLUDE_SYMBOLS = {"ETH", "WETH"}
+
+# =================
+
 
 def load_notified():
     if not os.path.exists(NOTIFIED_FILE):
@@ -27,63 +25,70 @@ def load_notified():
     with open(NOTIFIED_FILE, "r", encoding="utf-8") as f:
         return set(line.strip() for line in f)
 
-def save_notified(symbol):
-    with open(NOTIFIED_FILE, "a", encoding="utf-8") as f:
-        f.write(symbol + "\n")
 
-# =========================
-# Dexscreener 取得（安定版）
-# =========================
+def save_notified(pair_address):
+    with open(NOTIFIED_FILE, "a", encoding="utf-8") as f:
+        f.write(pair_address + "\n")
+
 
 def fetch_pairs():
-    url = "https://api.dexscreener.com/latest/dex/search?q=eth"
-    r = requests.get(url, timeout=15)
+    url = f"https://api.dexscreener.com/latest/dex/search?q={SEARCH_QUERY}"
+    r = requests.get(url, timeout=20)
     r.raise_for_status()
-    data = r.json()
-    return data.get("pairs", [])
+    return r.json().get("pairs", [])
 
-# =========================
-# 数値フィルタ（初期帯）
-# =========================
 
 def filter_pairs(pairs):
     result = []
+
     for p in pairs:
         try:
+            symbol = p["baseToken"]["symbol"]
+            token_address = p["baseToken"]["address"]
+            pair_address = p["pairAddress"]
+
+            # ETH / WETH 除外
+            if symbol in EXCLUDE_SYMBOLS:
+                continue
+
             fdv = p.get("fdv") or 0
             lp = p["liquidity"]["usd"]
-            symbol = p["baseToken"]["symbol"]
 
-            if MIN_FDV <= fdv <= MAX_FDV and lp >= MIN_LP_USD:
-                result.append({
-                    "symbol": symbol,
-                    "fdv": fdv,
-                    "lp": lp
-                })
+            if not (MIN_FDV <= fdv <= MAX_FDV):
+                continue
+            if lp < MIN_LP_USD:
+                continue
+
+            result.append({
+                "pair": pair_address,
+                "symbol": symbol,
+                "token": token_address,
+                "fdv": fdv,
+                "lp": lp
+            })
+
         except Exception:
             continue
+
     return result
 
-# =========================
-# スコアリング（説明可能）
-# =========================
 
 def calc_score(fdv, lp, growth):
     score = 0
 
-    # LP成長（最重要）
+    # LP成長
     if growth >= 50:
         score += 50
     elif growth >= 20:
         score += 30
 
-    # 流動性
+    # LP規模
     if lp >= 300_000:
         score += 30
     elif lp >= 100_000:
         score += 20
 
-    # FDV初期帯
+    # FDV
     if fdv <= 500_000:
         score += 20
     elif fdv <= 2_000_000:
@@ -91,36 +96,27 @@ def calc_score(fdv, lp, growth):
 
     return min(score, 100)
 
-# =========================
-# メイン処理
-# =========================
 
 def main():
     print("⏱ 実行開始")
 
     notified = load_notified()
 
-    # 1回目取得
     pairs1 = filter_pairs(fetch_pairs())
-
-    if CHECK_INTERVAL > 0:
-        time.sleep(CHECK_INTERVAL)
-
-    # 2回目取得
+    time.sleep(CHECK_INTERVAL)
     pairs2 = filter_pairs(fetch_pairs())
 
-    before = {p["symbol"]: p for p in pairs1}
+    before = {p["pair"]: p for p in pairs1}
 
     for p in pairs2:
-        symbol = p["symbol"]
+        pair = p["pair"]
 
-        if symbol not in before:
+        if pair not in before:
+            continue
+        if pair in notified:
             continue
 
-        if symbol in notified:
-            continue
-
-        lp_before = before[symbol]["lp"]
+        lp_before = before[pair]["lp"]
         lp_after = p["lp"]
 
         if lp_before <= 0:
@@ -132,17 +128,16 @@ def main():
             continue
 
         score = calc_score(p["fdv"], lp_after, growth)
-
         urgency = "高" if score >= 70 else "中" if score >= 50 else "低"
 
         reason = (
             f"LPが短時間で {growth:.1f}% 増加。\n"
-            f"FDVが初期帯（{p['fdv']:,}$）。\n"
-            "初期資金流入が確認され、拡散前段階の可能性。"
+            f"FDV {p['fdv']:,} USD の初期帯。\n"
+            "資金流入初期 → 拡散前の可能性。"
         )
 
         send_mail(
-            symbol=symbol,
+            symbol=f"{p['symbol']} ({p['token'][:6]}…)",
             score=score,
             growth=growth,
             fdv=p["fdv"],
@@ -151,13 +146,8 @@ def main():
             reason=reason
         )
 
-        save_notified(symbol)
+        save_notified(pair)
 
-        print(f"📧 通知送信: {symbol}（スコア {score}）")
-
-    print("✅ 実行終了")
-
-# =========================
 
 if __name__ == "__main__":
     main()
