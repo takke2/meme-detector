@@ -28,9 +28,11 @@ def save_notified(symbol):
 
 
 def fetch_pairs():
-    r = requests.get(DEX_API, timeout=20)
+    url = "https://api.dexscreener.com/latest/dex/search?q=eth"
+    r = requests.get(url, timeout=15)
     r.raise_for_status()
-    return r.json()["pairs"]
+    data = r.json()
+    return data.get("pairs", [])
 
 
 def filter_pairs(pairs):
