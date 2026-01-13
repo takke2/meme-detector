@@ -1,9 +1,11 @@
-name: Meme Detector (LP Growth + 10x Tracker)
+name: Meme Detector Step2
 
 on:
   schedule:
-    # 10分に1回（sleep無し設計なので問題なし）
-    - cron: "*/10 * * * *"
+    # 15分ごと / JST 0:00〜6:00 を除外
+    # GitHub Actions は UTC 基準
+    # JST 0–6 = UTC 15–21 → それ以外を実行
+    - cron: "*/15 0-14,22-23 * * *"
   workflow_dispatch:
 
 jobs:
@@ -11,21 +13,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ① リポジトリ取得
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # ② Python 環境
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      # ③ 依存関係
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
 
-      # ④ 初動検知 & 通知 & ログ追加
-      - name: Run LP growth detector (step2)
+      - name: Prepare state & logs
+        run: |
+          mkdir -p logs
+          touch state.json
+          touch logs/detections.jsonl
+
+      - name: Run detector
         env:
           FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
           TO_EMAIL:   ${{ secrets.TO_EMAIL }}
@@ -33,13 +39,7 @@ jobs:
         run: |
           python step2_lp_growth.py
 
-      # ⑤ 価格追跡 & 10倍判定（追記）
-      - name: Track price performance (step3)
-        run: |
-          python step3_price_tracker.py
-
-      # ⑥ state / logs 永続化（超重要）
-      - name: Save state and logs
+      - name: Save state & logs
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
