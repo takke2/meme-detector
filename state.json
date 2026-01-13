@@ -1,14 +1,14 @@
 {
   "CcYbXbMHr2o9Vyz2wmJcRvi59wh42xkXf6qrzChbHPN5": {
-    "lp": 512570.16,
+    "lp": 475088.27,
     "notified": {}
   },
   "0x4c598eD2D67D2f189263f70cf4573c5c1e6718b3": {
-    "lp": 340785.37,
+    "lp": 340438.94,
     "notified": {}
   },
   "0xa25773F75d7190E130D501509D22592151dB3915": {
-    "lp": 169140.07,
+    "lp": 169557.11,
     "notified": {}
   },
   "0x52db7C956270BD05B0375C912A44903A60a2A92f": {
@@ -16,7 +16,7 @@
     "notified": {}
   },
   "0xbFFEc96e8f3b5058B1817c14E4380758Fada01EF": {
-    "lp": 2744823.45,
+    "lp": 2738637.52,
     "notified": {}
   },
   "0x30fe90B1ad644970C48a6B5886EC39B1e3df97Ee": {
@@ -28,51 +28,51 @@
     "notified": {}
   },
   "0x019C29d5C97f8CBAa67013E2Cf4b6506a5cf183a": {
-    "lp": 302604.7,
+    "lp": 303602.36,
     "notified": {}
   },
   "0x622B5186384783BB805c12A808cCF07F41DE1Ff0": {
-    "lp": 248795.03,
-    "notified": {}
-  },
-  "0x6d6f646c6f6d6e69706f6f6c0000000000000000000000000000000000000000-1-1000752": {
-    "lp": 46684696.63,
+    "lp": 248509.86,
     "notified": {}
   },
   "0x69307c779700DE6EC88aBe6f15a118E800429d01": {
-    "lp": 1121392.57,
+    "lp": 1125219.8,
+    "notified": {}
+  },
+  "0x6d6f646c6f6d6e69706f6f6c0000000000000000000000000000000000000000-1-1000752": {
+    "lp": 46462857.48,
     "notified": {}
   },
   "0x326d947eE700bb99A952ffB2f7758bBA8BA08DF0": {
-    "lp": 139384.52,
+    "lp": 139931.11,
     "notified": {}
   },
   "0x3B7C8de2Cf66059b85025F170b58CAD84d361Fe1": {
-    "lp": 181528.04,
+    "lp": 185881.31,
     "notified": {}
   },
   "0x1e99E3A1eB5FdF26893028c21aD9E5eE868D01D7": {
-    "lp": 722103.38,
+    "lp": 724127.05,
     "notified": {}
   },
   "refv1-5965": {
     "lp": 119006.64,
     "notified": {}
   },
-  "0xCE214367756fA4ff523289fc87c032Bc7a9abE70": {
-    "lp": 91267.02,
-    "notified": {}
-  },
   "0xab07dE353E15b80fa3B4224D5C8fDF3Ac9F50670": {
-    "lp": 16976.61,
+    "lp": 17017.37,
     "notified": {}
   },
   "3117-factory_osmo1n3n75av8awcnw4jl62n3l48e6e4sxqmaf97w5ua6ddu4s475q5qq9udvx4_alloyed_allSOL-ibc_498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4": {
     "lp": 73128.32,
     "notified": {}
   },
+  "0xCE214367756fA4ff523289fc87c032Bc7a9abE70": {
+    "lp": 91365.66,
+    "notified": {}
+  },
   "0xbF9D262f0199Fea8BEF911175b1b313055aF4b1B": {
-    "lp": 6947.72,
+    "lp": 6944.76,
     "notified": {}
   },
   "0xB3788768d939A64692c7D8FFCb57e769deE9f238": {
@@ -80,35 +80,35 @@
     "notified": {}
   },
   "0x415c88A05B75d1a65822d899f4A78b4C0D7CbefD": {
-    "lp": 7709.87,
+    "lp": 7705.25,
     "notified": {}
   },
   "2054-factory_osmo1n3n75av8awcnw4jl62n3l48e6e4sxqmaf97w5ua6ddu4s475q5qq9udvx4_alloyed_allSOL-factory_osmo1z6r6qdknhgsc0zeracktgpcxf43j6sekq07nw8sxduc9lg0qjjlqfu25e3_alloyed_allBTC": {
-    "lp": 64041.07,
+    "lp": 63992.54,
     "notified": {}
   },
   "0xdaf544bCAB17E2dCD293C3Af28e67C7E8b5A49EE": {
-    "lp": 68006.66,
+    "lp": 67930.89,
     "notified": {}
   },
   "0x63bAA2f4aE6CffF08B9b4B58bA403ED6e15175B0": {
-    "lp": 138608.42,
+    "lp": 138423.49,
     "notified": {}
   },
   "0x9F5a0AD81Fe7fD5dFb84EE7A0CFb83967359BD90": {
-    "lp": 880640.11,
+    "lp": 879206.19,
     "notified": {}
   },
   "0x1E4600929Edf7F36B4A7eAc4C7571057D82a246c": {
-    "lp": 926114.49,
+    "lp": 925256.01,
     "notified": {}
   },
   "0xAe08C9D357731FD8d25681dE753551BE14C00405": {
-    "lp": 192762.29,
+    "lp": 192592.06,
     "notified": {}
   },
   "0xAb46D39Cb398fb3649ECBa781180016fEf75F50B": {
-    "lp": 273324.29,
+    "lp": 273323.63,
     "notified": {}
   },
   "0x8abd16bCC9077A6C5eD834eC5bA43Ad03b9139dc": {
