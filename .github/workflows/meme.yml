@@ -1,8 +1,9 @@
-name: Meme Detector Step2
+name: Meme Detector (LP Growth + 10x Tracker)
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    # 10分に1回（sleep無し設計なので問題なし）
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -10,17 +11,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ① リポジトリ取得
       - uses: actions/checkout@v4
 
+      # ② Python 環境
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install deps
+      # ③ 依存関係
+      - name: Install dependencies
         run: |
           pip install -r requirements.txt
 
-      - name: Run detector
+      # ④ 初動検知 & 通知 & ログ追加
+      - name: Run LP growth detector (step2)
         env:
           FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
           TO_EMAIL:   ${{ secrets.TO_EMAIL }}
@@ -28,10 +33,16 @@ jobs:
         run: |
           python step2_lp_growth.py
 
-      - name: Save notified state
+      # ⑤ 価格追跡 & 10倍判定（追記）
+      - name: Track price performance (step3)
+        run: |
+          python step3_price_tracker.py
+
+      # ⑥ state / logs 永続化（超重要）
+      - name: Save state and logs
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add notified.txt
-          git commit -m "update notified" || echo "no change"
+          git add state.json logs/detections.jsonl
+          git commit -m "update state and logs" || echo "no change"
           git push

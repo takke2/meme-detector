@@ -8,7 +8,17 @@ TO_EMAIL   = os.getenv("TO_EMAIL")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 
 
-def send_mail(symbol, score, growth, fdv, lp, urgency, reason):
+def send_mail(
+    symbol,
+    score,
+    growth,
+    fdv,
+    lp,
+    urgency,
+    reason,
+    chain=None,
+    token=None
+):
     msg = MIMEMultipart()
     msg["From"] = FROM_EMAIL
     msg["To"] = TO_EMAIL
@@ -16,11 +26,17 @@ def send_mail(symbol, score, growth, fdv, lp, urgency, reason):
 
     body = f"""
 ■ なぜこの通知が来た？
-初心者向けに言うと「お金が入り始めた初期段階」だからです。
+短時間で資金と取引が流入した「初動検知シグナル」です。
 
 ━━━━━━━━━━━━━━
 ■ コイン名
 {symbol}
+
+■ チェーン
+{chain or "不明"}
+
+■ コントラクトアドレス
+{token or "不明"}
 
 ■ 緊急度
 {urgency}
@@ -31,7 +47,7 @@ def send_mail(symbol, score, growth, fdv, lp, urgency, reason):
 ■ LP成長率
 {growth:.1f} %
 
-■ FDV（時価総額想定）
+■ FDV（想定時価総額）
 {fdv:,} USD
 
 ■ 流動性（LP）
@@ -42,7 +58,7 @@ def send_mail(symbol, score, growth, fdv, lp, urgency, reason):
 
 ━━━━━━━━━━━━━━
 ※ 10倍候補でも必ず上がるわけではありません
-※ 月1レベルで届く想定の強シグナルです
+※ ログは自動保存されています
 """
 
     msg.attach(MIMEText(body, "plain", "utf-8"))
