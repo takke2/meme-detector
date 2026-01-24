@@ -6,7 +6,6 @@ from datetime import datetime
 from notify_mail import send_mail  # 既存の notify_mail.py を使用
 
 STATE_FILE = "state.json"
-SEARCH_QUERY = "sol"
 
 # --- フィルタ条件 ---
 MIN_LP_USD = 1000
@@ -17,7 +16,7 @@ MIN_APY = 0
 MAX_APY = 10_000
 
 # --- 成長率判定 ---
-WATCH_LP_GROWTH = 50     # 通常ウォッチ
+WATCH_LP_GROWTH = 30     # 通常ウォッチ
 IMMEDIATE_LP_GROWTH = 80 # 緊急通知
 
 DEX_API = "https://api.raydium.io/pairs"
@@ -53,6 +52,10 @@ def filter_pairs(pairs):
     filtered = []
     for p in pairs:
         try:
+            # --- WSOL ペアのみ ---
+            if "WSOL" not in p.get("name", ""):
+                continue
+
             lp_usd = p.get("liquidity", 0)
             volume_24h = p.get("volume_24h_quote") or 0
             apy = p.get("apy") or 0
@@ -81,7 +84,6 @@ def main():
 
     filtered_pairs = filter_pairs(all_pairs)
     notification_count = 0
-
     debug_display_count = 0
 
     for p in filtered_pairs:
@@ -94,7 +96,21 @@ def main():
             fdv = p.get("fdv")
             buys = p.get("txns", {}).get("m5", {}).get("buys")
             sells = p.get("txns", {}).get("m5", {}).get("sells")
-            mint_address = p.get("lp_mint")
+
+            # --- WSOL 以外のトークンアドレス取得 ---
+            token_names = p["name"].split("/")
+            if len(token_names) != 2:
+                continue
+            other_token_name = token_names[0] if token_names[1] == "WSOL" else token_names[1]
+
+            # APIに tokens 情報があれば正確に取得
+            other_token_mint = None
+            for t in p.get("tokens", []):
+                if t.get("name") == other_token_name:
+                    other_token_mint = t.get("mint")
+                    break
+            if not other_token_mint:
+                other_token_mint = p.get("lp_mint")  # 無ければ代用
 
             # state に必ず存在させ、LP と最大値を更新
             if pair_id not in current_state:
@@ -105,18 +121,15 @@ def main():
                 }
             else:
                 current_state[pair_id]["lp"] = lp_usd
-                # 過去最大 LP 更新
                 if lp_usd > current_state[pair_id].get("max_lp", 0):
                     current_state[pair_id]["max_lp"] = lp_usd
 
             prev_lp = prev_state.get(pair_id, {}).get("lp", 0)
-            prev_max_lp = prev_state.get(pair_id, {}).get("max_lp", 0)
             prev_notified = prev_state.get(pair_id, {}).get("notified", {})
 
-            decision = None
             growth = (lp_usd - prev_lp) / prev_lp * 100 if prev_lp > 0 else 0
+            decision = None
 
-            # 初動・緊急判定
             if prev_lp > 0:
                 if growth >= IMMEDIATE_LP_GROWTH:
                     decision = "IMMEDIATE_IN"
@@ -125,9 +138,8 @@ def main():
 
             sent_mail = False
             if decision and not current_state[pair_id]["notified"].get(decision):
-                # メール送信
                 send_mail(
-                    symbol=f'{p.get("name")}',
+                    symbol=p.get("name"),
                     score=80 if decision == "IMMEDIATE_IN" else 60,
                     growth=growth,
                     fdv=fdv or 0,
@@ -135,13 +147,13 @@ def main():
                     urgency="高" if decision == "IMMEDIATE_IN" else "中",
                     reason=f"{decision} 判定",
                     chain=p.get("chainId"),
-                    token=mint_address
+                    token=other_token_mint  # WSOL 以外
                 )
                 current_state[pair_id]["notified"][decision] = True
                 notification_count += 1
                 sent_mail = True
 
-            # デバッグログは全件保存
+            # デバッグログ
             log_debug({
                 "time": datetime.utcnow().isoformat(),
                 "name": p.get("name"),
@@ -154,12 +166,12 @@ def main():
                 "fdv": fdv,
                 "growth": growth,
                 "decision": decision,
-                "sent_mail": sent_mail
+                "sent_mail": sent_mail,
+                "token_sent": other_token_mint
             })
 
-            # コンソールデバッグは最大 10 件まで
             if debug_display_count < MAX_DEBUG_DISPLAY:
-                print(f"[DEBUG] {p.get('name')} | LP:{lp_usd:.2f} | maxLP:{current_state[pair_id]['max_lp']:.2f} | prevLP:{prev_lp:.2f} | buys:{buys} | sells:{sells} | fdv:{fdv} | decision:{decision} | sent_mail:{sent_mail}")
+                print(f"[DEBUG] {p.get('name')} | LP:{lp_usd:.2f} | maxLP:{current_state[pair_id]['max_lp']:.2f} | prevLP:{prev_lp:.2f} | buys:{buys} | sells:{sells} | fdv:{fdv} | decision:{decision} | sent_mail:{sent_mail} | token:{other_token_mint}")
                 debug_display_count += 1
 
         except Exception as e:
