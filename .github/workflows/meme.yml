@@ -29,7 +29,7 @@ jobs:
         run: |
           mkdir -p logs
           touch state.json
-          touch logs/detections.jsonl
+          touch logs/debug_notifications.jsonl
 
       - name: Run detector
         env:
@@ -43,6 +43,6 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add state.json logs/detections.jsonl
+          git add state.json logs/debug_notifications.jsonl
           git commit -m "update state and logs" || echo "no change"
           git push

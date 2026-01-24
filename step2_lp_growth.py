@@ -3,7 +3,7 @@ import json
 import os
 import copy
 from datetime import datetime
-from notify_mail import send_mail  # 既存のnotify_mail.pyを使用
+from notify_mail import send_mail  # 既存の notify_mail.py を使用
 
 STATE_FILE = "state.json"
 SEARCH_QUERY = "sol"
@@ -17,8 +17,8 @@ MIN_APY = 0
 MAX_APY = 10_000
 
 # --- 成長率判定 ---
-WATCH_LP_GROWTH = 20
-IMMEDIATE_LP_GROWTH = 35
+WATCH_LP_GROWTH = 50     # 通常ウォッチ
+IMMEDIATE_LP_GROWTH = 80 # 緊急通知
 
 DEX_API = "https://api.raydium.io/pairs"
 
@@ -26,15 +26,18 @@ DEX_API = "https://api.raydium.io/pairs"
 DEBUG_FILE = "logs/debug_notifications.jsonl"
 os.makedirs("logs", exist_ok=True)
 
+# --- コンソールデバッグ最大件数 ---
+MAX_DEBUG_DISPLAY = 10
+
 def fetch_raydium_pairs():
     try:
         resp = requests.get(DEX_API, timeout=30)
         resp.raise_for_status()
         data = resp.json()
-        print(f"[Raydium] 取得件数: {len(data)}")
+        print(f"[API] ペア数: {len(data)}")
         return data
     except Exception as e:
-        print("[Raydium] API取得エラー:", e)
+        print("[API] 取得エラー:", e)
         return []
 
 def load_state():
@@ -44,7 +47,7 @@ def load_state():
 
 def save_state(state):
     json.dump(state, open(STATE_FILE, "w", encoding="utf-8"), indent=2)
-    print(f"state.json 更新完了。対象ペア数: {len(state)}")
+    print(f"[STATE] 更新完了。ペア数: {len(state)}")
 
 def filter_pairs(pairs):
     filtered = []
@@ -61,7 +64,7 @@ def filter_pairs(pairs):
                 filtered.append(p)
         except Exception:
             continue
-    print(f"フィルタ後ヒット件数: {len(filtered)}")
+    print(f"[FILTER] フィルタ後ヒット件数: {len(filtered)}")
     return filtered
 
 def log_debug(entry):
@@ -70,7 +73,6 @@ def log_debug(entry):
 
 def main():
     prev_state = load_state()
-    # 前回 state を deepcopy して保持、lpだけ更新する
     current_state = copy.deepcopy(prev_state)
 
     all_pairs = fetch_raydium_pairs()
@@ -80,6 +82,8 @@ def main():
     filtered_pairs = filter_pairs(all_pairs)
     notification_count = 0
 
+    debug_display_count = 0
+
     for p in filtered_pairs:
         try:
             pair_id = p.get("pair_id")
@@ -87,27 +91,34 @@ def main():
                 continue
 
             lp_usd = p.get("liquidity", 0)
-            fdv = p.get("fdv") or 0
-            buys = p.get("txns", {}).get("m5", {}).get("buys", 0)
-            sells = p.get("txns", {}).get("m5", {}).get("sells", 0)
+            fdv = p.get("fdv")
+            buys = p.get("txns", {}).get("m5", {}).get("buys")
+            sells = p.get("txns", {}).get("m5", {}).get("sells")
+            mint_address = p.get("lp_mint")
 
-            # state に必ず存在させ、lpだけ更新
+            # state に必ず存在させ、LP と最大値を更新
             if pair_id not in current_state:
                 current_state[pair_id] = {
                     "lp": lp_usd,
+                    "max_lp": lp_usd,
                     "notified": {}
                 }
             else:
                 current_state[pair_id]["lp"] = lp_usd
+                # 過去最大 LP 更新
+                if lp_usd > current_state[pair_id].get("max_lp", 0):
+                    current_state[pair_id]["max_lp"] = lp_usd
 
             prev_lp = prev_state.get(pair_id, {}).get("lp", 0)
+            prev_max_lp = prev_state.get(pair_id, {}).get("max_lp", 0)
             prev_notified = prev_state.get(pair_id, {}).get("notified", {})
 
             decision = None
             growth = (lp_usd - prev_lp) / prev_lp * 100 if prev_lp > 0 else 0
 
+            # 初動・緊急判定
             if prev_lp > 0:
-                if growth >= IMMEDIATE_LP_GROWTH and sells > 0 and buys / max(sells, 1) >= 3 and (buys + sells) >= 20:
+                if growth >= IMMEDIATE_LP_GROWTH:
                     decision = "IMMEDIATE_IN"
                 elif growth >= WATCH_LP_GROWTH:
                     decision = "WATCH"
@@ -119,37 +130,46 @@ def main():
                     symbol=f'{p.get("name")}',
                     score=80 if decision == "IMMEDIATE_IN" else 60,
                     growth=growth,
-                    fdv=fdv,
+                    fdv=fdv or 0,
                     lp=lp_usd,
                     urgency="高" if decision == "IMMEDIATE_IN" else "中",
                     reason=f"{decision} 判定",
                     chain=p.get("chainId"),
-                    token=p.get("lp_mint")
+                    token=mint_address
                 )
                 current_state[pair_id]["notified"][decision] = True
                 notification_count += 1
                 sent_mail = True
 
-            # デバッグログ
+            # デバッグログは全件保存
             log_debug({
+                "time": datetime.utcnow().isoformat(),
                 "name": p.get("name"),
                 "pair_id": pair_id,
-                "lp_usd": lp_usd,
+                "lp": lp_usd,
+                "max_lp": current_state[pair_id]["max_lp"],
                 "prev_lp": prev_lp,
                 "buys": buys,
                 "sells": sells,
-                "prev_notified": prev_notified,
+                "fdv": fdv,
                 "growth": growth,
                 "decision": decision,
                 "sent_mail": sent_mail
             })
+
+            # コンソールデバッグは最大 10 件まで
+            if debug_display_count < MAX_DEBUG_DISPLAY:
+                print(f"[DEBUG] {p.get('name')} | LP:{lp_usd:.2f} | maxLP:{current_state[pair_id]['max_lp']:.2f} | prevLP:{prev_lp:.2f} | buys:{buys} | sells:{sells} | fdv:{fdv} | decision:{decision} | sent_mail:{sent_mail}")
+                debug_display_count += 1
 
         except Exception as e:
             print("Error:", e)
             continue
 
     save_state(current_state)
-    print(f"通知対象件数: {notification_count}")
+    print(f"[SUMMARY] 通知対象件数: {notification_count}, 監視中ペア: {len(current_state)}")
 
 if __name__ == "__main__":
+    print("========== START ==========")
     main()
+    print("=========== END ===========")
