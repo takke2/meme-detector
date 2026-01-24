@@ -72,27 +72,6 @@ def filter_pairs(pairs):
     print(f"[FILTER] フィルタ後ヒット件数: {len(filtered)}")
     return filtered
 
-def log_debug(entry):
-    """
-    pair_id ごとに上書き保存する方式
-    """
-    logs = {}
-    if os.path.exists(DEBUG_FILE):
-        with open(DEBUG_FILE, "r", encoding="utf-8") as f:
-            for line in f:
-                try:
-                    l = json.loads(line)
-                    logs[l["pair_id"]] = l
-                except:
-                    continue
-    # 上書き
-    logs[entry["pair_id"]] = entry
-
-    # ファイルに上書き
-    with open(DEBUG_FILE, "w", encoding="utf-8") as f:
-        for e in logs.values():
-            f.write(json.dumps(e, ensure_ascii=False) + "\n")
-
 def extract_non_wsol_token(name, pair_id):
     """
     name: "WSOL/COIN" or "COIN/WSOL"
@@ -106,7 +85,6 @@ def extract_non_wsol_token(name, pair_id):
     parts_id = pair_id.split("-")
 
     if len(parts_name) != 2 or len(parts_id) != 2:
-        # 分割できなければ左側を返す（安全策）
         return parts_id[0]
 
     if parts_name[0] == "WSOL":
@@ -128,6 +106,9 @@ def main():
     notification_count = 0
     debug_display_count = 0
 
+    # デバッグログを辞書に保持（pair_id -> entry）
+    all_debugs = {}
+
     for p in filtered_pairs:
         try:
             pair_id = p.get("pair_id")
@@ -138,8 +119,6 @@ def main():
             fdv = p.get("fdv")
             buys = p.get("txns", {}).get("m5", {}).get("buys")
             sells = p.get("txns", {}).get("m5", {}).get("sells")
-
-            # 修正版：token_for_mail を pair_id に基づいて取得
             token_for_mail = extract_non_wsol_token(p.get("name"), pair_id)
 
             # state に必ず存在させ、LP と最大値を更新
@@ -148,7 +127,7 @@ def main():
                     "lp": lp_usd,
                     "max_lp": lp_usd,
                     "notified": {},
-                    "last_notified_lp": lp_usd  # 初期値
+                    "last_notified_lp": lp_usd
                 }
             else:
                 current_state[pair_id]["lp"] = lp_usd
@@ -171,7 +150,6 @@ def main():
 
             sent_mail = False
             if decision:
-                # メール送信
                 send_mail(
                     symbol=f'{p.get("name")}',
                     score=80 if decision == "IMMEDIATE_IN" else 60,
@@ -187,20 +165,24 @@ def main():
                 notification_count += 1
                 sent_mail = True
 
-            # デバッグログ（pair_id 上書き方式）
-            log_debug({
+            # デバッグログを辞書に追加（pair_id 上書き方式）
+            debug_entry = {
                 "time": datetime.utcnow().isoformat(),
                 "name": p.get("name"),
                 "pair_id": pair_id,
                 "lp": lp_usd,
                 "max_lp": current_state[pair_id]["max_lp"],
                 "prev_lp": prev_lp,
+                "buys": buys,
+                "sells": sells,
+                "fdv": fdv,
                 "growth": growth,
                 "growth_since_last_mail": growth_since_last_mail,
                 "decision": decision,
                 "sent_mail": sent_mail,
                 "token_for_mail": token_for_mail
-            })
+            }
+            all_debugs[pair_id] = debug_entry
 
             # コンソールデバッグは最大 10 件まで
             if debug_display_count < MAX_DEBUG_DISPLAY:
@@ -210,6 +192,11 @@ def main():
         except Exception as e:
             print("Error:", e)
             continue
+
+    # debug_logs を一括上書き
+    with open(DEBUG_FILE, "w", encoding="utf-8") as f:
+        for e in all_debugs.values():
+            f.write(json.dumps(e, ensure_ascii=False) + "\n")
 
     save_state(current_state)
     print(f"[SUMMARY] 通知対象件数: {notification_count}, 監視中ペア: {len(current_state)}")
