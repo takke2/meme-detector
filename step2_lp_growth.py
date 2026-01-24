@@ -43,10 +43,12 @@ def fetch_raydium_pairs():
 def load_state():
     if not os.path.exists(STATE_FILE):
         return {}
-    return json.load(open(STATE_FILE, "r", encoding="utf-8"))
+    with open(STATE_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 def save_state(state):
-    json.dump(state, open(STATE_FILE, "w", encoding="utf-8"), indent=2)
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
     print(f"[STATE] 更新完了。ペア数: {len(state)}")
 
 def filter_pairs(pairs):
@@ -71,23 +73,48 @@ def filter_pairs(pairs):
     return filtered
 
 def log_debug(entry):
-    with open(DEBUG_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    """
+    pair_id ごとに上書き保存する方式
+    """
+    logs = {}
+    if os.path.exists(DEBUG_FILE):
+        with open(DEBUG_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    l = json.loads(line)
+                    logs[l["pair_id"]] = l
+                except:
+                    continue
+    # 上書き
+    logs[entry["pair_id"]] = entry
 
-def extract_non_wsol_token(name, mint_address):
-    # name: "WSOL/COIN" or "COIN/WSOL"
-    if not name or not mint_address:
+    # ファイルに上書き
+    with open(DEBUG_FILE, "w", encoding="utf-8") as f:
+        for e in logs.values():
+            f.write(json.dumps(e, ensure_ascii=False) + "\n")
+
+def extract_non_wsol_token(name, pair_id):
+    """
+    name: "WSOL/COIN" or "COIN/WSOL"
+    pair_id: "左mint-右mint"
+    返却: WSOLでない方のmintアドレス
+    """
+    if not name or not pair_id:
         return None
-    parts = name.split("/")
-    if len(parts) != 2:
-        return mint_address
-    # WSOLでない方を返す
-    if parts[0] == "WSOL":
-        return parts[1]
-    elif parts[1] == "WSOL":
-        return parts[0]
+
+    parts_name = name.split("/")
+    parts_id = pair_id.split("-")
+
+    if len(parts_name) != 2 or len(parts_id) != 2:
+        # 分割できなければ左側を返す（安全策）
+        return parts_id[0]
+
+    if parts_name[0] == "WSOL":
+        return parts_id[1]  # 右側
+    elif parts_name[1] == "WSOL":
+        return parts_id[0]  # 左側
     else:
-        return mint_address
+        return parts_id[0]
 
 def main():
     prev_state = load_state()
@@ -111,8 +138,9 @@ def main():
             fdv = p.get("fdv")
             buys = p.get("txns", {}).get("m5", {}).get("buys")
             sells = p.get("txns", {}).get("m5", {}).get("sells")
-            mint_address = p.get("lp_mint")
-            token_for_mail = extract_non_wsol_token(p.get("name"), mint_address)
+
+            # 修正版：token_for_mail を pair_id に基づいて取得
+            token_for_mail = extract_non_wsol_token(p.get("name"), pair_id)
 
             # state に必ず存在させ、LP と最大値を更新
             if pair_id not in current_state:
@@ -129,7 +157,6 @@ def main():
 
             prev_lp = prev_state.get(pair_id, {}).get("lp", 0)
             last_notified_lp = current_state[pair_id].get("last_notified_lp", prev_lp)
-            prev_notified = prev_state.get(pair_id, {}).get("notified", {})
 
             decision = None
             growth = (lp_usd - prev_lp) / prev_lp * 100 if prev_lp > 0 else 0
@@ -160,7 +187,7 @@ def main():
                 notification_count += 1
                 sent_mail = True
 
-            # デバッグログは全件保存
+            # デバッグログ（pair_id 上書き方式）
             log_debug({
                 "time": datetime.utcnow().isoformat(),
                 "name": p.get("name"),
@@ -168,18 +195,16 @@ def main():
                 "lp": lp_usd,
                 "max_lp": current_state[pair_id]["max_lp"],
                 "prev_lp": prev_lp,
-                "buys": buys,
-                "sells": sells,
-                "fdv": fdv,
                 "growth": growth,
                 "growth_since_last_mail": growth_since_last_mail,
                 "decision": decision,
-                "sent_mail": sent_mail
+                "sent_mail": sent_mail,
+                "token_for_mail": token_for_mail
             })
 
             # コンソールデバッグは最大 10 件まで
             if debug_display_count < MAX_DEBUG_DISPLAY:
-                print(f"[DEBUG] {p.get('name')} | LP:{lp_usd:.2f} | maxLP:{current_state[pair_id]['max_lp']:.2f} | prevLP:{prev_lp:.2f} | growth:{growth:.2f}% | growth_since_last_mail:{growth_since_last_mail:.2f}% | decision:{decision} | sent_mail:{sent_mail}")
+                print(f"[DEBUG] {p.get('name')} | LP:{lp_usd:.2f} | maxLP:{current_state[pair_id]['max_lp']:.2f} | prevLP:{prev_lp:.2f} | growth:{growth:.2f}% | growth_since_last_mail:{growth_since_last_mail:.2f}% | decision:{decision} | sent_mail:{sent_mail} | token:{token_for_mail}")
                 debug_display_count += 1
 
         except Exception as e:
