@@ -1,15 +1,12 @@
 name: Meme Detector Step2
 
 on:
-  # 外部から正確に呼ぶ場合は workflow_dispatch が必要
-  workflow_dispatch:
-
-  # GitHub 内 cron 自動実行（参考用。UptimeRobot で正確に制御する場合は不要）
   schedule:
     # 15分ごと / JST 0:00〜6:00 を除外
     # GitHub Actions は UTC 基準
     # JST 0–6 = UTC 15–21 → それ以外を実行
-    - cron: "*/15 0-14,22-23 * * *"
+    - cron: "*/10 0-14,22-23 * * *"
+  workflow_dispatch:
 
 jobs:
   run-detector:
