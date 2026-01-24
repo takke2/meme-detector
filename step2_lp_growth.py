@@ -6,6 +6,7 @@ from datetime import datetime
 from notify_mail import send_mail  # 既存の notify_mail.py を使用
 
 STATE_FILE = "state.json"
+SEARCH_QUERY = "sol"
 
 # --- フィルタ条件 ---
 MIN_LP_USD = 1000
@@ -16,7 +17,7 @@ MIN_APY = 0
 MAX_APY = 10_000
 
 # --- 成長率判定 ---
-WATCH_LP_GROWTH = 30     # 通常ウォッチ
+WATCH_LP_GROWTH = 50     # 通常ウォッチ
 IMMEDIATE_LP_GROWTH = 80 # 緊急通知
 
 DEX_API = "https://api.raydium.io/pairs"
@@ -52,10 +53,6 @@ def filter_pairs(pairs):
     filtered = []
     for p in pairs:
         try:
-            # --- WSOL ペアのみ ---
-            if "WSOL" not in p.get("name", ""):
-                continue
-
             lp_usd = p.get("liquidity", 0)
             volume_24h = p.get("volume_24h_quote") or 0
             apy = p.get("apy") or 0
@@ -64,7 +61,10 @@ def filter_pairs(pairs):
                 MIN_VOLUME_24H <= volume_24h <= MAX_VOLUME_24H and
                 MIN_APY <= apy <= MAX_APY
             ):
-                filtered.append(p)
+                # WSOL を含むペアだけ
+                name = p.get("name", "")
+                if "WSOL" in name:
+                    filtered.append(p)
         except Exception:
             continue
     print(f"[FILTER] フィルタ後ヒット件数: {len(filtered)}")
@@ -73,6 +73,21 @@ def filter_pairs(pairs):
 def log_debug(entry):
     with open(DEBUG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+def extract_non_wsol_token(name, mint_address):
+    # name: "WSOL/COIN" or "COIN/WSOL"
+    if not name or not mint_address:
+        return None
+    parts = name.split("/")
+    if len(parts) != 2:
+        return mint_address
+    # WSOLでない方を返す
+    if parts[0] == "WSOL":
+        return parts[1]
+    elif parts[1] == "WSOL":
+        return parts[0]
+    else:
+        return mint_address
 
 def main():
     prev_state = load_state()
@@ -96,28 +111,16 @@ def main():
             fdv = p.get("fdv")
             buys = p.get("txns", {}).get("m5", {}).get("buys")
             sells = p.get("txns", {}).get("m5", {}).get("sells")
-
-            # --- WSOL 以外のトークンアドレス取得 ---
-            token_names = p["name"].split("/")
-            if len(token_names) != 2:
-                continue
-            other_token_name = token_names[0] if token_names[1] == "WSOL" else token_names[1]
-
-            # APIに tokens 情報があれば正確に取得
-            other_token_mint = None
-            for t in p.get("tokens", []):
-                if t.get("name") == other_token_name:
-                    other_token_mint = t.get("mint")
-                    break
-            if not other_token_mint:
-                other_token_mint = p.get("lp_mint")  # 無ければ代用
+            mint_address = p.get("lp_mint")
+            token_for_mail = extract_non_wsol_token(p.get("name"), mint_address)
 
             # state に必ず存在させ、LP と最大値を更新
             if pair_id not in current_state:
                 current_state[pair_id] = {
                     "lp": lp_usd,
                     "max_lp": lp_usd,
-                    "notified": {}
+                    "notified": {},
+                    "last_notified_lp": lp_usd  # 初期値
                 }
             else:
                 current_state[pair_id]["lp"] = lp_usd
@@ -125,35 +128,39 @@ def main():
                     current_state[pair_id]["max_lp"] = lp_usd
 
             prev_lp = prev_state.get(pair_id, {}).get("lp", 0)
+            last_notified_lp = current_state[pair_id].get("last_notified_lp", prev_lp)
             prev_notified = prev_state.get(pair_id, {}).get("notified", {})
 
-            growth = (lp_usd - prev_lp) / prev_lp * 100 if prev_lp > 0 else 0
             decision = None
+            growth = (lp_usd - prev_lp) / prev_lp * 100 if prev_lp > 0 else 0
+            growth_since_last_mail = (lp_usd - last_notified_lp) / max(last_notified_lp, 1) * 100
 
+            # 初動・緊急判定（前回通知後の成長ベースで判定）
             if prev_lp > 0:
-                if growth >= IMMEDIATE_LP_GROWTH:
+                if growth_since_last_mail >= IMMEDIATE_LP_GROWTH:
                     decision = "IMMEDIATE_IN"
-                elif growth >= WATCH_LP_GROWTH:
+                elif growth_since_last_mail >= WATCH_LP_GROWTH:
                     decision = "WATCH"
 
             sent_mail = False
-            if decision and not current_state[pair_id]["notified"].get(decision):
+            if decision:
+                # メール送信
                 send_mail(
-                    symbol=p.get("name"),
+                    symbol=f'{p.get("name")}',
                     score=80 if decision == "IMMEDIATE_IN" else 60,
-                    growth=growth,
+                    growth=growth_since_last_mail,
                     fdv=fdv or 0,
                     lp=lp_usd,
                     urgency="高" if decision == "IMMEDIATE_IN" else "中",
                     reason=f"{decision} 判定",
                     chain=p.get("chainId"),
-                    token=other_token_mint  # WSOL 以外
+                    token=token_for_mail
                 )
-                current_state[pair_id]["notified"][decision] = True
+                current_state[pair_id]["last_notified_lp"] = lp_usd
                 notification_count += 1
                 sent_mail = True
 
-            # デバッグログ
+            # デバッグログは全件保存
             log_debug({
                 "time": datetime.utcnow().isoformat(),
                 "name": p.get("name"),
@@ -165,13 +172,14 @@ def main():
                 "sells": sells,
                 "fdv": fdv,
                 "growth": growth,
+                "growth_since_last_mail": growth_since_last_mail,
                 "decision": decision,
-                "sent_mail": sent_mail,
-                "token_sent": other_token_mint
+                "sent_mail": sent_mail
             })
 
+            # コンソールデバッグは最大 10 件まで
             if debug_display_count < MAX_DEBUG_DISPLAY:
-                print(f"[DEBUG] {p.get('name')} | LP:{lp_usd:.2f} | maxLP:{current_state[pair_id]['max_lp']:.2f} | prevLP:{prev_lp:.2f} | buys:{buys} | sells:{sells} | fdv:{fdv} | decision:{decision} | sent_mail:{sent_mail} | token:{other_token_mint}")
+                print(f"[DEBUG] {p.get('name')} | LP:{lp_usd:.2f} | maxLP:{current_state[pair_id]['max_lp']:.2f} | prevLP:{prev_lp:.2f} | growth:{growth:.2f}% | growth_since_last_mail:{growth_since_last_mail:.2f}% | decision:{decision} | sent_mail:{sent_mail}")
                 debug_display_count += 1
 
         except Exception as e:
