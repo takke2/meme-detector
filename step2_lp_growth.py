@@ -24,8 +24,52 @@ IMMEDIATE_LP_GROWTH = 50
 DEX_API = "https://api.raydium.io/pairs"
 DEXSCREENER_API = "https://api.dexscreener.com/latest/dex/tokens/"
 
+# -----------------------------
+# Dexscreener 詳細データ取得（通知対象だけ）
+# -----------------------------
+def fetch_dexscreener_details(mint):
+    """Dexscreener から詳細データを取得（通知対象だけ呼ぶ）"""
+    url = f"{DEXSCREENER_API}{mint}"
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
 
-# --- ログ読み込み（pair_id → 最新ログ） ---
+        data = resp.json()
+        if not data or "pairs" not in data:
+            return None
+
+        pairs = data.get("pairs")
+        if not isinstance(pairs, list) or len(pairs) == 0:
+            return None
+
+        p = pairs[0]
+        if not isinstance(p, dict):
+            return None
+
+        return {
+            "price": p.get("priceUsd"),
+            "priceChange1m": p.get("priceChange", {}).get("m1"),
+            "priceChange5m": p.get("priceChange", {}).get("m5"),
+            "priceChange1h": p.get("priceChange", {}).get("h1"),
+
+            "txns5m": p.get("txns", {}).get("m5", {}).get("txns"),
+            "buys5m": p.get("txns", {}).get("m5", {}).get("buys"),
+            "sells5m": p.get("txns", {}).get("m5", {}).get("sells"),
+
+            "volume5m": p.get("volume", {}).get("m5"),
+            "liquidity_usd": p.get("liquidity", {}).get("usd"),
+            "fdv": p.get("fdv"),
+            "marketcap": p.get("marketCap"),
+            "contract_age_ms": p.get("pairCreatedAt"),
+            "lp_mint": p.get("lpToken"),
+        }
+
+    except Exception as e:
+        print("[Dexscreener 詳細取得エラー]", e)
+        return None
+
+
+# --- ログ読み込み ---
 def load_logs():
     if not os.path.exists(LOG_FILE):
         return {}
@@ -35,7 +79,7 @@ def load_logs():
         return {}
 
 
-# --- ログ保存（pair_id ごとに最新1件だけ） ---
+# --- ログ保存 ---
 def save_logs(log_dict):
     json.dump(log_dict, open(LOG_FILE, "w", encoding="utf-8"),
               ensure_ascii=False, indent=2)
@@ -109,6 +153,9 @@ def extract_non_wsol_token(name, pair_id):
     return parts_id[1] if parts_name[0] == "WSOL" else parts_id[0]
 
 
+# -----------------------------
+# main()
+# -----------------------------
 def main():
     prev_state = load_state()
     current_state = copy.deepcopy(prev_state)
@@ -136,7 +183,7 @@ def main():
                     "lp": lp_usd,
                     "max_lp": lp_usd,
                     "last_notified_lp": lp_usd,
-                    "initial_price": None  # 価格は通知時に取得
+                    "initial_price": None
                 }
             else:
                 if "max_lp" not in current_state[pair_id]:
@@ -156,7 +203,7 @@ def main():
             growth = (lp_usd - prev_lp) / max(prev_lp, 1) * 100
             growth_since_last_mail = (lp_usd - last_notified_lp) / max(last_notified_lp, 1) * 100
 
-            # --- 通知判定（LP成長のみ） ---
+            # --- 通知判定 ---
             decision = None
             if growth_since_last_mail >= IMMEDIATE_LP_GROWTH:
                 decision = "IMMEDIATE"
@@ -166,41 +213,56 @@ def main():
             sent_mail = False
             price_usd = None
             hundred_x = False
+            dex_details = None  # ← ここで初期化（通知対象だけ取得するため）
 
             if decision:
-                # 通知対象だけ DEXScreener から価格取得
+                # --- Dexscreener 詳細データは通知対象だけ取得 ---
+                dex_details = fetch_dexscreener_details(mint)
+
                 price_usd = fetch_price_usd(mint)
 
-                # 初回価格が未設定なら保存
                 if initial_price is None:
                     current_state[pair_id]["initial_price"] = price_usd
                     initial_price = price_usd
 
-                # 100倍判定（通知はしない）
                 if initial_price and initial_price > 0 and price_usd and price_usd / initial_price >= 100:
                     hundred_x = True
 
-                urgency_label = "高" if decision == "IMMEDIATE" else "中"
-
+                # --- send_mail 呼び出し（詳細データを全部渡す） ---
                 send_mail(
                     symbol=name,
                     score=0,
                     growth=growth_since_last_mail,
                     fdv=fdv,
                     lp=lp_usd,
-                    urgency=urgency_label,
+                    urgency="高" if decision == "IMMEDIATE" else "中",
                     reason=f"{decision} 判定（LP成長）",
                     chain="Solana",
                     token=mint,
                     mint=mint,
-                    pair_id=pair_id
+                    pair_id=pair_id,
+
+                    # --- Dexscreener 詳細データ ---
+                    price=dex_details.get("price") if dex_details else None,
+                    priceChange1m=dex_details.get("priceChange1m") if dex_details else None,
+                    priceChange5m=dex_details.get("priceChange5m") if dex_details else None,
+                    priceChange1h=dex_details.get("priceChange1h") if dex_details else None,
+                    txns5m=dex_details.get("txns5m") if dex_details else None,
+                    buys5m=dex_details.get("buys5m") if dex_details else None,
+                    sells5m=dex_details.get("sells5m") if dex_details else None,
+                    volume5m=dex_details.get("volume5m") if dex_details else None,
+                    liquidity_usd=dex_details.get("liquidity_usd") if dex_details else None,
+                    fdv_dex=dex_details.get("fdv") if dex_details else None,
+                    marketcap=dex_details.get("marketcap") if dex_details else None,
+                    contract_age_ms=dex_details.get("contract_age_ms") if dex_details else None,
+                    lp_mint=dex_details.get("lp_mint") if dex_details else None
                 )
 
                 current_state[pair_id]["last_notified_lp"] = lp_usd
                 notification_count += 1
                 sent_mail = True
 
-            # --- ログ保存（pair_id ごとに最新1件） ---
+            # --- ログ保存 ---
             logs[pair_id] = {
                 "time": datetime.utcnow().isoformat(),
                 "name": name,
@@ -216,7 +278,8 @@ def main():
                 "growth": growth,
                 "growth_since_last_mail": growth_since_last_mail,
                 "decision": decision,
-                "sent_mail": sent_mail
+                "sent_mail": sent_mail,
+                "dex_details": dex_details  # 通知対象だけ保存
             }
 
         except Exception as e:

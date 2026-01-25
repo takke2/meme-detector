@@ -3,13 +3,31 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
 
+
 FROM_EMAIL = os.getenv("FROM_EMAIL")
 TO_EMAIL   = os.getenv("TO_EMAIL")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 
 
-def send_mail(symbol, score, growth, fdv, lp, urgency, reason,
-              chain=None, token=None, mint=None, pair_id=None):
+def send_mail(
+    symbol, score, growth, fdv, lp, urgency, reason,
+    chain=None, token=None, mint=None, pair_id=None,
+
+    # --- Dexscreener 詳細データ（Bot側で取得） ---
+    price=None,
+    priceChange1m=None,
+    priceChange5m=None,
+    priceChange1h=None,
+    txns5m=None,
+    buys5m=None,
+    sells5m=None,
+    volume5m=None,
+    liquidity_usd=None,
+    fdv_dex=None,
+    marketcap=None,
+    contract_age_ms=None,
+    lp_mint=None
+):
 
     msg = MIMEMultipart()
     msg["From"] = FROM_EMAIL
@@ -24,139 +42,148 @@ def send_mail(symbol, score, growth, fdv, lp, urgency, reason,
     link_dextools = f"https://www.dextools.io/app/en/solana/pair-explorer/{pair_id}" if pair_id else "不明"
     link_birdeye = f"https://birdeye.so/token/{mint}" if mint else "不明"
 
-    # --- SNSチェック手順（意味付き） ---
-    sns_check = f"""
-━━━━━━━━━━━━━━
-【SNSチェック手順（手動）】
+    # None を見やすく
+    def fmt(v, default="-"):
+        return default if v is None else v
 
-① DEXScreener（最重要）
-● txns5m（直近5分の取引数）
-　→ SNSで話題になると最初に跳ねる指標
-　→ Botではなく「人間の売買」が増えるため
-　→ 50以上：話題化の兆候
-　→ 100以上：初動の初動（最速シグナル）
-
-● priceChange5m（直近5分の価格変動）
-　→ SNSバズの直後に最も反応する
-　→ +10%以上：買い圧が強い
-
-● liquidity（LP）の急増
-　→ 運営が広告を打つ前兆
-　→ マーケティング開始の合図になることが多い
-
-② X（Twitter）
-● 「${symbol}」で検索
-　→ 直近1時間の投稿が10件以上：話題化
-　→ インフルエンサーが触れる：強い
-　→ ミーム画像が増える：強い
-　→ チャート画像を貼る人が増える：強い
-
-③ DEXTools
-● Hype Score
-　→ SNSでの言及数・検索数・アクセス数を元に算出
-　→ 50以上：SNSで話題化
-　→ 70以上：バズ状態
-
-● Social Mentions
-　→ X・Telegram・Discordでの言及数
-　→ 急増していればSNSバズの兆候
-
-④ Birdeye
-● trendScore
-　→ Solana内での注目度
-　→ 上昇していれば初動
-
-● holders の増加
-　→ コミュニティが育っている証拠
-
-● volume の急増
-　→ SNSバズの直後に最も反応する
-
-● None
-　→ 新規すぎる or まだ誰も見ていない（初動の可能性）
-"""
-
-    # --- 買い判断基準（意味付き） ---
-    buy_rules = f"""
-【買い判断の基準（意味付き）】
-
-以下のうち 2つ以上 当てはまったら「買い候補」。
-
-● txns5m が 100以上
-　→ SNSバズの最速シグナル
-
-● priceChange5m が +10%以上
-　→ 買い圧が強く、初動の可能性
-
-● X で直近1時間の投稿が増えている
-　→ 人間の関心が急増している
-
-● インフルエンサーが触れている
-　→ その後の拡散が期待できる
-
-● DEXTools の Hype Score が高い
-　→ SNSでの注目度が高い
-
-● Birdeye の trendScore が上昇
-　→ Solana内での注目度が上昇
-
-● LP が急増している
-　→ 運営が広告を打つ前兆
-
-● SNSリンクが急に追加された
-　→ マーケティング開始の合図
-"""
-
-    # --- メール本文 ---
+    # --- コパイロット向け解析依頼プロンプト（本文） ---
     body = f"""
-■ コイン名
-{symbol}
+以下の Solana トークンについて、投資価値をプロレベルで総合評価してください。
 
-■ チェーン
-{chain or "不明"}
+【対象トークン】
+- Symbol: {symbol}
+- Chain: {chain or "Solana"}
+- Token Mint: {token or mint or "不明"}
+- Dexscreener URL: {link_dexscreener}
 
-■ コントラクトアドレス（Phantom検索用）
-{token or "不明"}
 
-■ 緊急度
-{urgency}
+「token」で Solana チェーンについて、「link_dexscreener」でスクレイピングして、
+コインを買う価値があるかに関わる、少なくとも以下の項目の値を取得してください。
+必要なら追加しても構いません。
 
-■ LP成長率
-{growth:.1f} %
+==============================
+[基本情報]
+- Price (USD): {fmt(price)}
+- Liquidity: {fmt(liquidity_usd)}
+- FDV: {fmt(fdv_dex or fdv)}
+- Market Cap: {fmt(marketcap)}
 
-■ FDV
-{fdv:,} USD
+[価格変化]
+- Price Change 5m: {fmt(priceChange5m)}
+- Price Change 1h: {fmt(priceChange1h)}
+- Price Change 6h:
+- Price Change 24h:
 
-■ 流動性（LP）
-{lp:,.0f} USD
+[取引データ（全期間）]
+- Total Txns:
+- Total Volume:
+- Total Buys:
+- Total Sells:
+- Buy Volume:
+- Sell Volume:
+- Buyers:
+- Sellers:
 
-■ 判定理由
-{reason}
+[LPプール構成]
+- Pooled Token:
+- Pooled SOL:
 
-━━━━━━━━━━━━━━
-▼ 各種リンク
-DEXScreener:
-{link_dexscreener}
+[ペア情報]
+- DEX:
+- Pair Age (ms / 人間がわかる単位に変換してもよい): {fmt(contract_age_ms)}
+- Token Mint: {token or mint or "不明"}
+==============================
 
-X検索:
-{link_x1}
-{link_x2}
-{link_x3}
+【Bot がリアルタイムで取得した重要データ】
+以下は、Bot がリアルタイムで取得した指標です。
+これらも必ず投資判断に反映してください。
 
-DEXTools:
-{link_dextools}
+- LP Growth (%): {growth:.1f}
+- Current LP (USD): {lp:,.0f}
+- FDV (Raydium): {fdv:,}
+- Price (Dexscreener): {fmt(price)}
+- Price Change 1m: {fmt(priceChange1m)}
+- Price Change 5m: {fmt(priceChange5m)}
+- Price Change 1h: {fmt(priceChange1h)}
+- Txns 5m: {fmt(txns5m)}
+- Buys 5m: {fmt(buys5m)}
+- Sells 5m: {fmt(sells5m)}
+- Volume 5m: {fmt(volume5m)}
+- Market Cap (Dexscreener): {fmt(marketcap)}
+- LP Mint: {fmt(lp_mint)}
 
-Birdeye:
-{link_birdeye}
-━━━━━━━━━━━━━━
+==============================
+⑤ 総合判定カテゴリ
+==============================
+以下のいずれかで判定し、理由を明確に説明してください：
 
-{sns_check}
+- ENTRY（今入る価値が高い）
+- WATCH（監視対象）
+- NO（触る必要なし）
+- RUG RISK（詐欺・危険）
+- BOT（botトークン）
+- 初動ではない
+- EXIT ZONE（すでに利確帯）
+- FAKE PUMP（出来高だけ作っている）
+- DEV SELLING（開発者売却を検知）
 
-{buy_rules}
+==============================
+⑥ 倍率予測（主観でよい）
+==============================
+※ 倍率は「今からエントリーした場合」を基準としてください。
 
-━━━━━━━━━━━━━━
-※ 10倍候補でも必ず上がるわけではありません
-※ ログは自動保存されています
+- 2倍の可能性
+- 10倍の可能性
+- 100倍の可能性
+- 1000倍以上の可能性
+
+==============================
+⑦ 投資判断（プロレベルで具体的に）
+==============================
+以下を必ず答えてください：
+
+- 今入るべきか
+- 触る価値があるか
+- 本気度（低 / 中 / 高）
+- 推奨資産割合（%）
+- 想定保有時間（分 / 時間 / 日）
+- 買い戦略（例：3分割、初回は成長確認後）
+- 売り戦略（利確ライン・損切りライン）
+- 失敗パターン（どうなったら即撤退か）
+- 再エントリー条件
+  例:
+  - 「5分以内に volume が半減 → 即撤退」
+  - 「LP が -10% → 成行売り」
+
+==============================
+【出力フォーマット】
+==============================
+以下の形式で出力してください：
+
+■ 総合判定：
+■ 理由：
+
+■ 倍率予測（今からエントリーした場合）：
+- 2倍：
+- 10倍：
+- 100倍：
+- 1000倍：
+
+■ 投資判断：
+- 今入るべきか：
+- 触る価値があるか：
+- 本気度：
+- 推奨資産割合：
+- 想定保有時間：
+- 買い戦略：
+- 売り戦略：
+- 失敗パターン：
+- 再エントリー条件：
+
+■ 取得データ一覧（DexScreener / Birdeye / X / Contract）：
+（取得した生データをすべて記載）
+
+以上のルールに従って、指定されたトークンを総合評価してください。
 """
 
     msg.attach(MIMEText(body, "plain", "utf-8"))
