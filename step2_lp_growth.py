@@ -21,17 +21,18 @@ MAX_APY = 10_000
 WATCH_LP_GROWTH = 20
 IMMEDIATE_LP_GROWTH = 50
 
-# --- 二次フィルタ ---
-MAX_PAIR_AGE_MS = 24 * 60 * 60 * 1000 * 7  # 24時間以内
-MIN_TXNS5M = 5                          # txns5m ≥ 5
-MIN_PRICECHANGE5M = 0                   # priceChange5m ≥ 0
-MIN_LP_DELTA_USD = 300                  # LP絶対増加額 ≥ 500
+# --- 二次フィルタ（最小変更） ---
+MAX_PAIR_AGE_MS = 24 * 60 * 60 * 1000 * 365 * 5   # WSOLペアは古いので5年に緩和
+MIN_TXNS5M = 2                                     # あなたの指定
+MIN_PRICECHANGE5M = 0
+MIN_LP_DELTA_USD = 300
 
 DEX_API = "https://api.raydium.io/pairs"
 DEXSCREENER_API = "https://api.dexscreener.com/latest/dex/tokens/"
 
+
 # -----------------------------
-# Dexscreener 詳細データ取得（修正版）
+# Dexscreener 詳細データ取得
 # -----------------------------
 def fetch_dexscreener_details(mint):
     url = f"{DEXSCREENER_API}{mint}"
@@ -47,7 +48,6 @@ def fetch_dexscreener_details(mint):
         if not isinstance(pairs, list) or len(pairs) == 0:
             return None
 
-        # liquidity 最大のペアを選ぶ
         best = None
         best_liq = -1
         for p in pairs:
@@ -65,7 +65,6 @@ def fetch_dexscreener_details(mint):
 
         p = best
 
-        # --- 修正1: txns5m = buys + sells ---
         buys5m = p.get("txns", {}).get("m5", {}).get("buys")
         sells5m = p.get("txns", {}).get("m5", {}).get("sells")
 
@@ -73,7 +72,6 @@ def fetch_dexscreener_details(mint):
         if buys5m is not None and sells5m is not None:
             txns5m = buys5m + sells5m
 
-        # --- 修正2: priceChange5m ---
         priceChange5m = p.get("priceChange", {}).get("m5")
 
         return {
@@ -230,7 +228,7 @@ def main():
             growth_since_last_mail = (lp_usd - last_notified_lp) / max(last_notified_lp, 1) * 100
             lp_delta = lp_usd - last_notified_lp
 
-            # --- 一次判定（LP成長） ---
+            # --- 一次判定 ---
             decision = None
             if growth_since_last_mail >= IMMEDIATE_LP_GROWTH and lp_delta >= MIN_LP_DELTA_USD:
                 decision = "IMMEDIATE"
@@ -242,11 +240,12 @@ def main():
             hundred_x = False
             dex_details = None
 
-            # --- 二次判定（あなたの4条件 + 時間修正） ---
+            # --- 二次判定 ---
             if decision:
                 dex_details = fetch_dexscreener_details(mint)
 
                 extra_ok = True
+                fail_reasons = []
 
                 tx5 = None
                 pc5 = None
@@ -257,41 +256,49 @@ def main():
                     tx5 = dex_details.get("txns5m")
                     pc5 = dex_details.get("priceChange5m")
 
-                    # --- デバッグ出力 ---
-                    print(f"[DEBUG] {name} | txns5m={tx5}, priceChange5m={pc5}, lp_delta={lp_delta}, age={age}")
+                    now_ms = int(datetime.utcnow().timestamp() * 1000)
 
-                    # --- 修正3: 経過時間に変換 ---
+                    # 年齢
                     try:
-                        now_ms = int(datetime.utcnow().timestamp() * 1000)
                         age_ms = now_ms - int(age)
-
                         if age_ms > MAX_PAIR_AGE_MS:
                             extra_ok = False
+                            fail_reasons.append("AGE")
                     except:
-                        pass
+                        extra_ok = False
+                        fail_reasons.append("AGE_ERR")
 
-                    # ② txns5m ≥ 5
+                    # txns5m（あなたの指定で2に変更）
                     try:
-                        if tx5 is not None and int(tx5) < MIN_TXNS5M:
+                        if tx5 is None or int(tx5) < MIN_TXNS5M:
                             extra_ok = False
+                            fail_reasons.append("TX5")
                     except:
-                        pass
+                        extra_ok = False
+                        fail_reasons.append("TX5_ERR")
 
-                    # ③ priceChange5m ≥ 0
+                    # priceChange5m（Noneは許容）
                     try:
                         if pc5 is not None and float(pc5) < MIN_PRICECHANGE5M:
                             extra_ok = False
+                            fail_reasons.append("PC5")
                     except:
-                        pass
+                        extra_ok = False
+                        fail_reasons.append("PC5_ERR")
+
+                    # --- デバッグ出力 ---
+                    print(
+                        f"[DEXCHK] {name} | tx5={tx5}, pc5={pc5}, age={age}, lpΔ={lp_delta}, fail={fail_reasons}"
+                    )
 
                 else:
                     extra_ok = False
+                    print(f"[DEXCHK] {name} | dex_details=None")
 
                 if not extra_ok:
                     decision = None
 
                 else:
-                    # --- 通知実行 ---
                     price_usd = fetch_price_usd(mint)
 
                     if initial_price is None:
