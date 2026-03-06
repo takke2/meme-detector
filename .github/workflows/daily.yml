@@ -1,0 +1,49 @@
+name: Daily Stock Run
+
+on:
+  schedule:
+    # 日本時間17:00 = UTC 08:00
+    - cron: '0 8 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  run-daily:
+    runs-on: ubuntu-latest
+
+    env:
+      EMAIL_USER: ${{ secrets.FROM_EMAIL }}
+      EMAIL_TO:   ${{ secrets.TO_EMAIL }}
+      EMAIL_PASS: ${{ secrets.APP_PASSWORD }}
+
+    steps:
+      - name: Checkout (shallow)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run main
+        run: python main.py
+
+      # ★ ここからが履歴を残さない処理
+      - name: Force single-commit push
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+          # 既存履歴を削除して新しい初期状態にする
+          git checkout --orphan latest_branch
+          git add -A
+          git commit -m "Auto update: $(date +'%Y-%m-%d')"
+          git branch -D main
+          git branch -m main
+          git push -f origin main
